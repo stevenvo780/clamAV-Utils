@@ -64,7 +64,14 @@ def start_scan_handler(app):
     if not os.path.exists(app.quarantine_dir) and not app.delete_infected.get():
         os.makedirs(app.quarantine_dir)
 
-    app.status_label.config(text='Estado: Obteniendo archivos para escanear...')
+    app.status_label.grid()
+    app.speed_label.grid()
+    app.estimated_time_label.grid()
+
+    app.status_label.config(text='Estado: Escaneando...')
+    app.speed_label.config(text="Velocidad: Calculando...")
+    app.estimated_time_label.config(text="Tiempo estimado restante: Calculando...")
+
     app.root.update()
 
     files_to_scan = get_files_to_scan(app.directories, app.exclude_dirs)
@@ -75,10 +82,6 @@ def start_scan_handler(app):
 
     app.progress['maximum'] = app.total_files
     app.progress['value'] = 0
-
-    app.status_label.grid()
-    app.speed_label.grid()
-    app.estimated_time_label.grid()
 
     app.scan_thread = threading.Thread(target=run_scan, args=(app, files_to_scan), daemon=True)
     app.scan_thread.start()

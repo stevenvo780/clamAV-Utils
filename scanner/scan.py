@@ -49,6 +49,7 @@ def scan_file(args):
                             logging.info(f'Archivo infectado: {file_path} - {message}')
         elif result.returncode != 0:
             if logging_enabled:
+                print(f'Error al escanear archivos: {result}')
                 logging.error(f'Error al escanear archivos: {result.stderr.strip()}')
     except Exception as e:
         if logging_enabled:

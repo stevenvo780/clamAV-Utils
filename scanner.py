@@ -3,12 +3,14 @@ import subprocess
 import multiprocessing
 import logging
 import shutil
+from multiprocessing import Pool, Manager
 
 def get_files_to_scan(directories, exclude_dirs):
     exclude_dirs = [os.path.abspath(d) for d in exclude_dirs]
     files_to_scan = []
     for directory in directories:
         for root, dirs, files in os.walk(directory, topdown=True):
+            # Exclude specified directories
             dirs[:] = [d for d in dirs if os.path.abspath(os.path.join(root, d)) not in exclude_dirs]
             for file in files:
                 file_path = os.path.join(root, file)
@@ -19,30 +21,29 @@ def get_files_to_scan(directories, exclude_dirs):
     return files_to_scan
 
 def scan_file(args):
-    scanner_cmd, quarantine_dir, result_list, file_batch, logging_enabled = args
+    scanner_cmd, quarantine_dir, file_batch, logging_enabled = args
+    infected_files = []
     try:
         cmd = [scanner_cmd, '--no-summary', '--stdout']
         if quarantine_dir:
             cmd.append(f'--move={quarantine_dir}')
-        if not logging_enabled:
-            cmd.append('--log=/dev/null')
         cmd.extend(file_batch)
-        result = subprocess.run(cmd,
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE,
-                                text=True)
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         if result.returncode == 1:
             for line in result.stdout.strip().split('\n'):
                 if ': ' in line:
                     file_path, message = line.split(': ', 1)
                     if 'OK' not in message:
-                        result_list.append((file_path, message))
-        elif result.returncode != 0 and logging_enabled:
-            logging.error(f'Error al escanear archivos: {result.stderr.strip()}')
+                        infected_files.append((file_path, message))
+                        if logging_enabled:
+                            logging.info(f'Archivo infectado: {file_path} - {message}')
+        elif result.returncode != 0:
+            if logging_enabled:
+                logging.error(f'Error al escanear archivos: {result.stderr.strip()}')
     except Exception as e:
         if logging_enabled:
             logging.error(f'Excepción al escanear archivos: {e}')
-    return len(file_batch)
+    return len(file_batch), infected_files
 
 def chunker(seq, size):
     return (seq[pos:pos + size] for pos in range(0, len(seq), size))
@@ -74,24 +75,31 @@ def perform_scan(files_to_scan, quarantine_dir, batch_size, jobs, logging_enable
         logging.info('Iniciando escaneo de archivos...')
     total_files = len(files_to_scan)
     if total_files == 0:
-        return 0, [], []
+        return 0, 0, []
 
-    manager = multiprocessing.Manager()
-    infected_files = manager.list()
+    manager = Manager()
+    infected_files_list = manager.list()
 
-    pool = multiprocessing.Pool(processes=jobs)
+    pool = Pool(processes=jobs)
     file_batches = list(chunker(files_to_scan, batch_size))
 
-    scan_args = [(scanner_cmd, quarantine_dir, infected_files, batch, logging_enabled) for batch in file_batches]
+    scan_args = [
+        (scanner_cmd, quarantine_dir, batch, logging_enabled)
+        for batch in file_batches
+    ]
 
     processed_files = 0
     try:
-        for nfiles in pool.imap_unordered(scan_file, scan_args):
+        for nfiles, infected_files in pool.imap_unordered(scan_file, scan_args):
             processed_files += nfiles
+            infected_files_list.extend(infected_files)
             if progress_callback:
-                progress_callback(nfiles)  # Actualiza el progreso
+                progress_callback(nfiles)  # Update progress
+    except Exception as e:
+        if logging_enabled:
+            logging.error(f'Error durante el escaneo: {e}')
     finally:
         pool.close()
         pool.join()
 
-    return total_files, processed_files, list(infected_files)
+    return total_files, processed_files, list(infected_files_list)

@@ -18,10 +18,14 @@ class ClamAVScannerApp:
         self.log_file = 'clamav_scan.log'
         self.batch_size = 500
         self.update_db = True
-        self.logging_enabled = tk.BooleanVar()
+        self.logging_enabled = tk.BooleanVar(value=True)
         self.nucleos_libres = tk.IntVar(value=0)
-        self.jobs = tk.IntVar(value=max(1, multiprocessing.cpu_count() - self.nucleos_libres.get()))
+        self.jobs = tk.IntVar()
+        self.total_files = 0
+        self.elapsed_time = 0
+        self.infected_files = []
         self.create_widgets()
+        self.update_jobs()
 
     def create_widgets(self):
         frame = tk.Frame(self.root)
@@ -58,7 +62,13 @@ class ClamAVScannerApp:
         nucleos_libres_label = tk.Label(options_frame, text='Núcleos a Dejar Libres:')
         nucleos_libres_label.grid(row=2, column=0, sticky='w')
 
-        nucleos_libres_spinbox = tk.Spinbox(options_frame, from_=0, to=multiprocessing.cpu_count(), textvariable=self.nucleos_libres)
+        nucleos_libres_spinbox = tk.Spinbox(
+            options_frame,
+            from_=0,
+            to=multiprocessing.cpu_count() - 1,
+            textvariable=self.nucleos_libres,
+            command=self.update_jobs
+        )
         nucleos_libres_spinbox.grid(row=2, column=1, sticky='we')
 
         batch_size_label = tk.Label(options_frame, text='Tamaño de Lote:')
@@ -83,6 +93,11 @@ class ClamAVScannerApp:
 
         self.status_label = tk.Label(frame, text='Estado: Listo')
         self.status_label.grid(row=7, column=0, columnspan=2, sticky='w')
+
+    def update_jobs(self):
+        total_cpus = multiprocessing.cpu_count()
+        nucleos_libres = self.nucleos_libres.get()
+        self.jobs.set(max(1, total_cpus - nucleos_libres))
 
     def add_directory(self):
         directory = filedialog.askdirectory()
@@ -109,12 +124,20 @@ class ClamAVScannerApp:
 
         self.quarantine_dir = self.quarantine_entry.get()
         self.log_file = self.log_file_entry.get()
-        self.batch_size = int(self.batch_size_entry.get())
-        self.jobs.set(max(1, multiprocessing.cpu_count() - self.nucleos_libres.get()))
+        try:
+            self.batch_size = int(self.batch_size_entry.get())
+        except ValueError:
+            messagebox.showerror('Error', 'El tamaño de lote debe ser un número entero.')
+            return
+
+        self.update_jobs()
 
         if self.logging_enabled.get():
-            logging.basicConfig(filename=self.log_file, level=logging.INFO,
-                                format='%(asctime)s - %(levelname)s - %(message)s')
+            logging.basicConfig(
+                filename=self.log_file,
+                level=logging.INFO,
+                format='%(asctime)s - %(levelname)s - %(message)s'
+            )
         else:
             logging.disable(logging.CRITICAL)
 
@@ -187,10 +210,12 @@ class ClamAVScannerApp:
     def display_results(self):
         files_per_second = self.total_files / self.elapsed_time if self.elapsed_time > 0 else 0
 
-        result_message = f'Análisis completo.\nTotal de archivos escaneados: {self.total_files}\n' \
-                         f'Tiempo total de escaneo: {self.elapsed_time:.2f} segundos\n' \
-                         f'Archivos por segundo: {files_per_second:.2f}\n' \
-                         f'Total de archivos infectados: {len(self.infected_files)}'
+        result_message = (
+            f'Análisis completo.\nTotal de archivos escaneados: {self.total_files}\n'
+            f'Tiempo total de escaneo: {self.elapsed_time:.2f} segundos\n'
+            f'Archivos por segundo: {files_per_second:.2f}\n'
+            f'Total de archivos infectados: {len(self.infected_files)}'
+        )
 
         if self.infected_files:
             result_message += '\nArchivos infectados:\n'
@@ -205,8 +230,3 @@ class ClamAVScannerApp:
 
     def update_status_label(self, message):
         self.status_label.config(text=message)
-
-def main():
-    root = tk.Tk()
-    app = ClamAVScannerApp(root)
-    root.mainloop()

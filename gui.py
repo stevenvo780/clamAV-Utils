@@ -1,12 +1,14 @@
+import os
+import sys
+import logging
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from tkinter.ttk import Progressbar
 import threading
 import multiprocessing
-import os
-import logging
+import subprocess
+import shutil
 import time
-import sys
 from scanner import perform_scan, update_virus_database, get_scanner_command, get_files_to_scan
 
 class ClamAVScannerApp:
@@ -15,8 +17,14 @@ class ClamAVScannerApp:
         self.root.title('ClamAV Scanner')
         self.directories = []
         self.exclude_dirs = ['/proc', '/sys', '/dev', '/run', '/tmp', '/var/lib', '/var/run']
-        self.quarantine_dir = os.path.abspath('quarantine')
-        self.log_file = 'clamav_scan.log'
+        
+        user_dir = os.path.expanduser("~/.clamav_scanner")
+        os.makedirs(user_dir, exist_ok=True)
+        
+        self.quarantine_dir = os.path.join(user_dir, 'quarantine')
+        os.makedirs(self.quarantine_dir, exist_ok=True)
+        
+        self.log_file = os.path.join(user_dir, 'clamav_scan.log')
         self.batch_size = 500
         self.update_db = True
         self.logging_enabled = tk.BooleanVar(value=True)
@@ -28,6 +36,7 @@ class ClamAVScannerApp:
         self.stop_requested = False
         self.scan_thread = None
         self.pool = None
+        self.delete_infected = tk.BooleanVar(value=False)  # Nuevo: opción para borrar en lugar de enviar a cuarentena
         self.create_widgets()
         self.update_jobs()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -64,6 +73,10 @@ class ClamAVScannerApp:
         enable_logging_check = tk.Checkbutton(options_frame, text='Habilitar Logs', variable=self.logging_enabled)
         enable_logging_check.grid(row=1, column=0, sticky='w')
 
+        delete_infected_check = tk.Checkbutton(options_frame, text='Borrar archivos infectados',
+                                               variable=self.delete_infected)
+        delete_infected_check.grid(row=1, column=1, sticky='w')
+
         nucleos_libres_label = tk.Label(options_frame, text='Núcleos a Dejar Libres:')
         nucleos_libres_label.grid(row=2, column=0, sticky='w')
 
@@ -87,7 +100,7 @@ class ClamAVScannerApp:
         log_file_label.grid(row=4, column=0, sticky='w')
 
         self.log_file_entry = tk.Entry(options_frame)
-        self.log_file_entry.insert(0, 'clamav_scan.log')
+        self.log_file_entry.insert(0, self.log_file)
         self.log_file_entry.grid(row=4, column=1, sticky='we')
 
         start_button = tk.Button(frame, text='Iniciar Escaneo', command=self.start_scan)
@@ -160,9 +173,8 @@ class ClamAVScannerApp:
             messagebox.showerror('Error', 'No se encontró clamdscan ni clamscan. Por favor, instala ClamAV.')
             return
 
-        if self.quarantine_dir:
-            self.quarantine_dir = os.path.abspath(self.quarantine_dir)
-            os.makedirs(self.quarantine_dir, exist_ok=True)
+        if not os.path.exists(self.quarantine_dir) and not self.delete_infected.get():
+            os.makedirs(self.quarantine_dir)
 
         self.status_label.config(text='Estado: Obteniendo archivos para escanear...')
         self.root.update()
@@ -186,7 +198,7 @@ class ClamAVScannerApp:
             self.pool = multiprocessing.Pool(processes=self.jobs.get())
             total_files, processed_files, infected_files = perform_scan(
                 files_to_scan=files_to_scan,
-                quarantine_dir=self.quarantine_dir,
+                quarantine_dir=self.quarantine_dir if not self.delete_infected.get() else None,
                 batch_size=self.batch_size,
                 jobs=self.jobs.get(),
                 logging_enabled=self.logging_enabled.get(),

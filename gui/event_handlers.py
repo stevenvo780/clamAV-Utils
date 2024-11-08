@@ -76,6 +76,10 @@ def start_scan_handler(app):
     app.progress['maximum'] = app.total_files
     app.progress['value'] = 0
 
+    app.status_label.grid()
+    app.speed_label.grid()
+    app.estimated_time_label.grid()
+
     app.scan_thread = threading.Thread(target=run_scan, args=(app, files_to_scan), daemon=True)
     app.scan_thread.start()
     monitor_progress(app)
@@ -127,16 +131,16 @@ def _update_progress(app, nfiles):
     processed_files = app.progress['value']
     remaining_files = app.total_files - processed_files
 
-    if processed_files > 0:
+    if processed_files > 0 and elapsed_time > 0:
         files_per_second = processed_files / elapsed_time
         estimated_time_remaining = remaining_files / files_per_second
     else:
+        files_per_second = 0
         estimated_time_remaining = 0
 
-    app.status_label.config(
-        text=f'Estado: Escaneando... Tiempo estimado restante: {estimated_time_remaining:.2f} segundos'
-    )
-
+    app.status_label.config(text="Estado: Escaneando...")
+    app.speed_label.config(text=f"Velocidad: {files_per_second:.2f} archivos/segundo")
+    app.estimated_time_label.config(text=f"Tiempo estimado restante: {estimated_time_remaining:.2f} segundos")
 
 def monitor_progress(app):
     if app.scan_thread and app.scan_thread.is_alive():
@@ -154,13 +158,18 @@ def display_results(app):
 
     messagebox.showinfo('Escaneo Completo', result_message)
     app.status_label.config(text='Estado: Escaneo completo.')
+    app.speed_label.config(text="Velocidad: N/A")
+    app.estimated_time_label.config(text="Tiempo estimado restante: N/A")
+
+    app.status_label.grid_remove()
+    app.speed_label.grid_remove()
+    app.estimated_time_label.grid_remove()
 
 def on_close_handler(app):
     app.stop_requested = True
     if app.pool:
         app.pool.terminate()
         app.pool.join()
-        app.pool = None
     if app.scan_thread and app.scan_thread.is_alive():
         app.scan_thread.join()
     app.root.quit()

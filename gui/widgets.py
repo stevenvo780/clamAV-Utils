@@ -93,3 +93,12 @@ def create_widgets(app):
 
     app.status_label = tk.Label(frame, text='Estado: Listo')
     app.status_label.grid(row=8, column=0, columnspan=2, sticky='w')
+    app.status_label.grid_remove()
+
+    app.speed_label = tk.Label(frame, text='Velocidad: N/A')
+    app.speed_label.grid(row=9, column=0, columnspan=2, sticky='w')
+    app.speed_label.grid_remove()
+
+    app.estimated_time_label = tk.Label(frame, text='Tiempo estimado restante: N/A')
+    app.estimated_time_label.grid(row=10, column=0, columnspan=2, sticky='w')
+    app.estimated_time_label.grid_remove()

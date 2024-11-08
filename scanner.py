@@ -19,11 +19,13 @@ def get_files_to_scan(directory, exclude_dirs):
                 logging.warning(f'Permiso denegado: {file_path}')
     return files_to_scan
 
-def scan_file(scanner_cmd, quarantine_dir, result_list, file_batch):
+def scan_file(scanner_cmd, quarantine_dir, result_list, file_batch, logging_enabled=False):
     try:
-        cmd = [scanner_cmd, '--no-summary', '--stdout', '--log=/dev/null']
+        cmd = [scanner_cmd, '--no-summary', '--stdout']
         if quarantine_dir:
             cmd.append(f'--move={quarantine_dir}')
+        if not logging_enabled:
+            cmd.append('--log=/dev/null')
         cmd.extend(file_batch)
         result = subprocess.run(cmd,
                                 stdout=subprocess.PIPE,
@@ -36,9 +38,11 @@ def scan_file(scanner_cmd, quarantine_dir, result_list, file_batch):
                     if 'OK' not in message:
                         result_list.append((file_path, message))
         elif result.returncode != 0:
-            logging.error(f'Error al escanear archivos {file_batch}: {result.stderr.strip()}')
+            if logging_enabled:
+                logging.error(f'Error al escanear archivos {file_batch}: {result.stderr.strip()}')
     except Exception as e:
-        logging.error(f'Excepción al escanear archivos {file_batch}: {e}')
+        if logging_enabled:
+            logging.error(f'Excepción al escanear archivos {file_batch}: {e}')
     return len(file_batch)
 
 def chunker(seq, size):
@@ -47,7 +51,5 @@ def chunker(seq, size):
 def update_virus_database():
     try:
         subprocess.run(['freshclam'], check=True)
-        logging.info('Base de datos de virus actualizada correctamente.')
-    except subprocess.CalledProcessError as e:
-        logging.error(f'Error al actualizar la base de datos de virus: {e}')
+    except subprocess.CalledProcessError:
         print('Error al actualizar la base de datos de virus. Continuando con el escaneo.')

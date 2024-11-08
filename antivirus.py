@@ -10,7 +10,7 @@ import shutil
 import logging
 from functools import partial
 
-nucleosLibres = 6
+nucleosLibres = 1
 
 def get_files_to_scan(directory, exclude_dirs):
     files_to_scan = []
@@ -26,27 +26,36 @@ def get_files_to_scan(directory, exclude_dirs):
                 logging.warning(f'Permiso denegado: {file_path}')
     return files_to_scan
 
-def scan_file(quarantine_dir, result_list, file_path):
+def scan_file(scanner_cmd, quarantine_dir, result_list, file_batch):
     try:
-        cmd = ['clamscan', '--no-summary', '--stdout']
+        cmd = [scanner_cmd, '--no-summary', '--stdout']
         if quarantine_dir:
             cmd.append(f'--move={quarantine_dir}')
-        cmd.append(file_path)
+        cmd.extend(file_batch)
         result = subprocess.run(cmd,
                                 stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE,
                                 text=True)
         if result.returncode == 1:
             # Virus encontrado
-            result_list.append((file_path, result.stdout.strip()))
+            # Parsear la salida para encontrar archivos infectados
+            for line in result.stdout.strip().split('\n'):
+                if ': ' in line:
+                    file_path, message = line.split(': ', 1)
+                    if 'OK' not in message:
+                        result_list.append((file_path, message))
         elif result.returncode == 0:
             # Sin virus
             pass
         else:
             # Error en el escaneo
-            logging.error(f'Error al escanear {file_path}: {result.stderr.strip()}')
+            logging.error(f'Error al escanear archivos {file_batch}: {result.stderr.strip()}')
     except Exception as e:
-        logging.error(f'Excepción al escanear {file_path}: {e}')
+        logging.error(f'Excepción al escanear archivos {file_batch}: {e}')
+    return len(file_batch)
+
+def chunker(seq, size):
+    return (seq[pos:pos + size] for pos in range(0, len(seq), size))
 
 def main():
     parser = argparse.ArgumentParser(description='Escanea directorios con ClamAV.')
@@ -57,16 +66,21 @@ def main():
                         help='Directorios a excluir del escaneo')
     parser.add_argument('--quarantine-dir', help='Directorio para mover archivos infectados')
     parser.add_argument('--log-file', default='clamav_scan.log', help='Archivo de log (por defecto: clamav_scan.log)')
+    parser.add_argument('--batch-size', type=int, default=100, help='Número de archivos por lote para el escaneo (por defecto: 100)')
     args = parser.parse_args()
 
     # Configurar logging
     logging.basicConfig(filename=args.log_file, level=logging.INFO,
                         format='%(asctime)s - %(levelname)s - %(message)s')
 
-    # Verificar si clamscan está instalado
-    if not shutil.which('clamscan'):
-        logging.error('clamscan no encontrado. Por favor, instala ClamAV.')
-        print('Error: clamscan no encontrado. Por favor, instala ClamAV.')
+    # Verificar si clamdscan o clamscan están instalados
+    if shutil.which('clamdscan'):
+        scanner_cmd = 'clamdscan'
+    elif shutil.which('clamscan'):
+        scanner_cmd = 'clamscan'
+    else:
+        logging.error('No se encontró clamdscan ni clamscan. Por favor, instala ClamAV.')
+        print('Error: No se encontró clamdscan ni clamscan. Por favor, instala ClamAV.')
         sys.exit(1)
 
     # Crear directorio de cuarentena si se especifica
@@ -98,12 +112,16 @@ def main():
     print(f'Total de archivos a escanear: {total_files}')
     logging.info(f'Total de archivos a escanear: {total_files}')
 
+    # Dividir los archivos en lotes
+    batch_size = args.batch_size
+    file_batches = list(chunker(files_to_scan, batch_size))
+
     # Lista para almacenar archivos infectados
     manager = multiprocessing.Manager()
     infected_files = manager.list()
 
     # Preparar función parcial para el escaneo
-    scan_func = partial(scan_file, quarantine_dir, infected_files)
+    scan_func = partial(scan_file, scanner_cmd, quarantine_dir, infected_files)
 
     # Crear un pool de procesos
     pool = multiprocessing.Pool(processes=args.jobs)
@@ -111,8 +129,8 @@ def main():
     # Escanear archivos con barra de progreso
     try:
         with tqdm(total=total_files, desc='Escaneando archivos', unit='archivo') as pbar:
-            for _ in pool.imap_unordered(scan_func, files_to_scan):
-                pbar.update()
+            for nfiles in pool.imap_unordered(scan_func, file_batches):
+                pbar.update(nfiles)
     except KeyboardInterrupt:
         print('\nEscaneo interrumpido por el usuario.')
         logging.warning('Escaneo interrumpido por el usuario.')

@@ -9,6 +9,28 @@
 # - GNU Parallel instalado
 # - Usuario con permisos de lectura en los directorios a escanear
 
+# Función para mostrar el uso del script
+usage() {
+    echo "Uso: $0 [opciones] directorio1 directorio2 ..."
+    echo "Opciones:"
+    echo "  -h, --help    Muestra esta ayuda y termina."
+    exit 1
+}
+
+# Verificar si se ha solicitado ayuda
+if [[ "$1" == "-h" || "$1" == "--help" ]]; then
+    usage
+fi
+
+# Verificar si se han proporcionado directorios
+if [ $# -lt 1 ]; then
+    echo "Error: Debes proporcionar al menos un directorio para escanear."
+    usage
+fi
+
+# Lista de unidades a escanear
+drives=("$@")
+
 # Función para validar e instalar dependencias
 install_dependencies() {
     local missing_dep=0
@@ -38,7 +60,7 @@ install_dependencies() {
     fi
 
     # Terminar el script si faltan dependencias
-    if (( missing_dep  )); then
+    if (( missing_dep )); then
         echo "Error: No se pueden satisfacer todas las dependencias. Saliendo..." >&2
         exit 1
     fi
@@ -58,15 +80,6 @@ chmod 700 "$QUARANTINE_DIR"
 # Archivo de log general
 LOG_FILE="$HOME/clamav_scan.log"
 echo "Iniciando análisis de virus - $(date)" > "$LOG_FILE"
-
-# Lista de unidades a escanear
-drives=(
-    "$HOME"
-    #"/mnt/Documentos"
-    #"/mnt/FASTDATA"
-    #"/mnt/Juegos"
-    #"/media/steven/E6AC99B7AC99832B"
-)
 
 # Número de trabajos paralelos (ajustable)
 PARALLEL_JOBS=$(nproc)

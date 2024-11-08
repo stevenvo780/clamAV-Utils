@@ -62,25 +62,15 @@ def get_scanner_command():
     else:
         return None
 
-def perform_scan(files_to_scan, quarantine_dir, batch_size, jobs, logging_enabled, progress_callback=None):
+def perform_scan(files_to_scan, quarantine_dir, batch_size, jobs, logging_enabled, progress_callback=None, stop_flag=None):
     scanner_cmd = get_scanner_command()
     if not scanner_cmd:
         raise FileNotFoundError('No se encontró clamdscan ni clamscan. Por favor, instala ClamAV.')
 
-    if quarantine_dir:
-        quarantine_dir = os.path.abspath(quarantine_dir)
-        os.makedirs(quarantine_dir, exist_ok=True)
-
-    if logging_enabled:
-        logging.info('Iniciando escaneo de archivos...')
-    total_files = len(files_to_scan)
-    if total_files == 0:
-        return 0, 0, []
-
-    manager = Manager()
+    manager = multiprocessing.Manager()
     infected_files_list = manager.list()
 
-    pool = Pool(processes=jobs)
+    pool = multiprocessing.Pool(processes=jobs)
     file_batches = list(chunker(files_to_scan, batch_size))
 
     scan_args = [
@@ -91,15 +81,14 @@ def perform_scan(files_to_scan, quarantine_dir, batch_size, jobs, logging_enable
     processed_files = 0
     try:
         for nfiles, infected_files in pool.imap_unordered(scan_file, scan_args):
+            if stop_flag and stop_flag():
+                break
             processed_files += nfiles
             infected_files_list.extend(infected_files)
             if progress_callback:
-                progress_callback(nfiles)  # Update progress
-    except Exception as e:
-        if logging_enabled:
-            logging.error(f'Error durante el escaneo: {e}')
+                progress_callback(nfiles)
     finally:
         pool.close()
         pool.join()
 
-    return total_files, processed_files, list(infected_files_list)
+    return len(files_to_scan), processed_files, list(infected_files_list)

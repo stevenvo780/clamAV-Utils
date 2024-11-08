@@ -24,8 +24,12 @@ class ClamAVScannerApp:
         self.total_files = 0
         self.elapsed_time = 0
         self.infected_files = []
+        self.stop_requested = False  # Flag to stop the scan
         self.create_widgets()
         self.update_jobs()
+
+        # Ensure clean exit when closing the application
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
     def create_widgets(self):
         frame = tk.Frame(self.root)
@@ -86,7 +90,10 @@ class ClamAVScannerApp:
         self.log_file_entry.grid(row=4, column=1, sticky='we')
 
         start_button = tk.Button(frame, text='Iniciar Escaneo', command=self.start_scan)
-        start_button.grid(row=5, column=0, columnspan=2, sticky='we', pady=5)
+        start_button.grid(row=5, column=0, sticky='we', pady=5)
+
+        stop_button = tk.Button(frame, text='Detener Escaneo', command=self.stop_scan)
+        stop_button.grid(row=5, column=1, sticky='we', pady=5)
 
         self.progress = Progressbar(frame, orient=tk.HORIZONTAL, length=400, mode='determinate')
         self.progress.grid(row=6, column=0, columnspan=2, pady=5)
@@ -131,6 +138,7 @@ class ClamAVScannerApp:
             return
 
         self.update_jobs()
+        self.stop_requested = False  # Reset stop flag
 
         if self.logging_enabled.get():
             logging.basicConfig(
@@ -158,7 +166,6 @@ class ClamAVScannerApp:
         self.status_label.config(text='Estado: Obteniendo archivos para escanear...')
         self.root.update()
 
-        # Obtener archivos para escanear y total de archivos
         files_to_scan = get_files_to_scan(self.directories, self.exclude_dirs)
         self.total_files = len(files_to_scan)
         if self.total_files == 0:
@@ -168,7 +175,7 @@ class ClamAVScannerApp:
         self.progress['maximum'] = self.total_files
         self.progress['value'] = 0
 
-        # Inicia el hilo de escaneo y monitoriza el progreso
+        # Start scanning in a separate thread
         self.scan_thread = threading.Thread(target=self.run_scan, args=(files_to_scan,))
         self.scan_thread.start()
         self.monitor_progress()
@@ -182,7 +189,8 @@ class ClamAVScannerApp:
                 batch_size=self.batch_size,
                 jobs=self.jobs.get(),
                 logging_enabled=self.logging_enabled.get(),
-                progress_callback=self.update_progress
+                progress_callback=self.update_progress,
+                stop_flag=lambda: self.stop_requested  # Pass stop flag
             )
             self.total_files = total_files
             self.infected_files = infected_files
@@ -193,6 +201,11 @@ class ClamAVScannerApp:
         finally:
             end_time = time.time()
             self.elapsed_time = end_time - start_time
+
+    def stop_scan(self):
+        self.stop_requested = True  # Set stop flag to request stop
+        self.status_label.config(text="Estado: Escaneo detenido por el usuario.")
+        self.progress.stop()
 
     def update_progress(self, nfiles):
         self.root.after(0, self._update_progress, nfiles)
@@ -205,17 +218,15 @@ class ClamAVScannerApp:
         if self.scan_thread.is_alive():
             self.root.after(100, self.monitor_progress)
         else:
-            self.display_results()
+            if not self.stop_requested:
+                self.display_results()
 
     def display_results(self):
         files_per_second = self.total_files / self.elapsed_time if self.elapsed_time > 0 else 0
-
-        result_message = (
-            f'Análisis completo.\nTotal de archivos escaneados: {self.total_files}\n'
-            f'Tiempo total de escaneo: {self.elapsed_time:.2f} segundos\n'
-            f'Archivos por segundo: {files_per_second:.2f}\n'
-            f'Total de archivos infectados: {len(self.infected_files)}'
-        )
+        result_message = f'Análisis completo.\nTotal de archivos escaneados: {self.total_files}\n' \
+                         f'Tiempo total de escaneo: {self.elapsed_time:.2f} segundos\n' \
+                         f'Archivos por segundo: {files_per_second:.2f}\n' \
+                         f'Total de archivos infectados: {len(self.infected_files)}'
 
         if self.infected_files:
             result_message += '\nArchivos infectados:\n'
@@ -224,6 +235,10 @@ class ClamAVScannerApp:
 
         messagebox.showinfo('Escaneo Completo', result_message)
         self.status_label.config(text='Estado: Escaneo completo.')
+
+    def on_close(self):
+        self.stop_scan()  # Ensure scanning stops if the window is closed
+        self.root.destroy()
 
     def show_error_message(self, message):
         messagebox.showerror('Error', message)

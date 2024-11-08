@@ -25,6 +25,8 @@ def scan_file(args):
     infected_files = []
     try:
         cmd = [scanner_cmd, '--no-summary', '--stdout']
+        if not logging_enabled:
+            cmd.append('--log=/dev/null')
         if quarantine_dir:
             cmd.append(f'--move={quarantine_dir}')
         cmd.extend(file_batch)

@@ -1,17 +1,12 @@
-# gui.py
-
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from tkinter.ttk import Progressbar
 import threading
 import multiprocessing
 import os
-import shutil
 import logging
 import time
-from functools import partial
-from scanner import get_files_to_scan, scan_file, chunker, update_virus_database
-import subprocess
+from scanner import perform_scan, update_virus_database, get_scanner_command, get_files_to_scan
 
 class ClamAVScannerApp:
     def __init__(self, root):
@@ -26,7 +21,6 @@ class ClamAVScannerApp:
         self.logging_enabled = tk.BooleanVar()
         self.nucleos_libres = tk.IntVar(value=0)
         self.jobs = tk.IntVar(value=max(1, multiprocessing.cpu_count() - self.nucleos_libres.get()))
-        self.infected_files = []
         self.create_widgets()
 
     def create_widgets(self):
@@ -129,11 +123,8 @@ class ClamAVScannerApp:
             self.root.update()
             update_virus_database()
 
-        if shutil.which('clamdscan'):
-            self.scanner_cmd = 'clamdscan'
-        elif shutil.which('clamscan'):
-            self.scanner_cmd = 'clamscan'
-        else:
+        scanner_cmd = get_scanner_command()
+        if not scanner_cmd:
             messagebox.showerror('Error', 'No se encontró clamdscan ni clamscan. Por favor, instala ClamAV.')
             return
 
@@ -144,15 +135,8 @@ class ClamAVScannerApp:
         self.status_label.config(text='Estado: Obteniendo archivos para escanear...')
         self.root.update()
 
-        files_to_scan = []
-        exclude_dirs = [os.path.abspath(d) for d in self.exclude_dirs]
-        for directory in self.directories:
-            directory = os.path.abspath(directory)
-            if not os.path.exists(directory):
-                continue
-            files = get_files_to_scan(directory, exclude_dirs)
-            files_to_scan.extend(files)
-
+        # Obtener archivos para escanear y total de archivos
+        files_to_scan = get_files_to_scan(self.directories, self.exclude_dirs)
         self.total_files = len(files_to_scan)
         if self.total_files == 0:
             messagebox.showinfo('Información', 'No se encontraron archivos para escanear.')
@@ -160,57 +144,69 @@ class ClamAVScannerApp:
 
         self.progress['maximum'] = self.total_files
         self.progress['value'] = 0
-        self.status_label.config(text='Estado: Escaneando archivos...')
-        self.root.update()
 
-        self.manager = multiprocessing.Manager()
-        self.infected_files = self.manager.list()
-
-        scan_func = partial(scan_file, self.scanner_cmd, self.quarantine_dir, self.infected_files, self.logging_enabled.get())
-
-        self.pool = multiprocessing.Pool(processes=self.jobs.get())
-
-        file_batches = list(chunker(files_to_scan, self.batch_size))
-
-        self.start_time = time.time()
-
-        self.scan_thread = threading.Thread(target=self.run_scan, args=(file_batches, scan_func))
+        # Inicia el hilo de escaneo y monitoriza el progreso
+        self.scan_thread = threading.Thread(target=self.run_scan, args=(files_to_scan,))
         self.scan_thread.start()
         self.monitor_progress()
 
-    def run_scan(self, file_batches, scan_func):
+    def run_scan(self, files_to_scan):
+        start_time = time.time()
         try:
-            for nfiles in self.pool.imap_unordered(scan_func, file_batches):
-                self.progress.step(nfiles)
+            total_files, processed_files, infected_files = perform_scan(
+                files_to_scan=files_to_scan,
+                quarantine_dir=self.quarantine_dir,
+                batch_size=self.batch_size,
+                jobs=self.jobs.get(),
+                logging_enabled=self.logging_enabled.get(),
+                progress_callback=self.update_progress
+            )
+            self.total_files = total_files
+            self.infected_files = infected_files
+        except Exception as e:
+            self.root.after(0, self.show_error_message, f'Error durante el escaneo: {e}')
+            self.root.after(0, self.update_status_label, 'Estado: Error durante el escaneo.')
+            return
         finally:
-            self.pool.close()
-            self.pool.join()
+            end_time = time.time()
+            self.elapsed_time = end_time - start_time
+
+    def update_progress(self, nfiles):
+        self.root.after(0, self._update_progress, nfiles)
+
+    def _update_progress(self, nfiles):
+        self.progress['value'] += nfiles
+        self.progress.update_idletasks()
 
     def monitor_progress(self):
         if self.scan_thread.is_alive():
             self.root.after(100, self.monitor_progress)
         else:
-            end_time = time.time()
-            elapsed_time = end_time - self.start_time
-            files_per_second = self.total_files / elapsed_time if elapsed_time > 0 else 0
+            self.display_results()
 
-            result_message = f'Análisis completo.\nTotal de archivos escaneados: {self.total_files}\n' \
-                             f'Tiempo total de escaneo: {elapsed_time:.2f} segundos\n' \
-                             f'Archivos por segundo: {files_per_second:.2f}\n' \
-                             f'Total de archivos infectados: {len(self.infected_files)}'
+    def display_results(self):
+        files_per_second = self.total_files / self.elapsed_time if self.elapsed_time > 0 else 0
 
-            if self.infected_files:
-                result_message += '\nArchivos infectados:\n'
-                for file_path, output in self.infected_files:
-                    result_message += f'- {file_path}\n  {output}\n'
+        result_message = f'Análisis completo.\nTotal de archivos escaneados: {self.total_files}\n' \
+                         f'Tiempo total de escaneo: {self.elapsed_time:.2f} segundos\n' \
+                         f'Archivos por segundo: {files_per_second:.2f}\n' \
+                         f'Total de archivos infectados: {len(self.infected_files)}'
 
-            messagebox.showinfo('Escaneo Completo', result_message)
-            self.status_label.config(text='Estado: Escaneo completo.')
+        if self.infected_files:
+            result_message += '\nArchivos infectados:\n'
+            for file_path, output in self.infected_files:
+                result_message += f'- {file_path}\n  {output}\n'
+
+        messagebox.showinfo('Escaneo Completo', result_message)
+        self.status_label.config(text='Estado: Escaneo completo.')
+
+    def show_error_message(self, message):
+        messagebox.showerror('Error', message)
+
+    def update_status_label(self, message):
+        self.status_label.config(text=message)
 
 def main():
     root = tk.Tk()
     app = ClamAVScannerApp(root)
     root.mainloop()
-
-if __name__ == '__main__':
-    main()

@@ -1,9 +1,7 @@
-# clamav_scanner/utils/dependencies.py
-
 import os
 import sys
 import shutil
-import logging
+import subprocess
 
 def check_dependencies():
     dependencies_missing = []
@@ -34,7 +32,7 @@ def check_dependencies():
         print(missing_deps_message)
         
         try:
-            os.system(f'notify-send "Dependencias Faltantes" "{missing_deps_message}"')
+            subprocess.run(['notify-send', 'Dependencias Faltantes', missing_deps_message], check=True)
         except Exception as e:
             print(f"No se pudo mostrar la notificación: {e}")
 

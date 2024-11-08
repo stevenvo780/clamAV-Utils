@@ -1,11 +1,11 @@
 import os
 import sys
 import threading
-import time
 import tkinter as tk
 from tkinter import filedialog, messagebox, Toplevel, Listbox, Scrollbar
 import multiprocessing
 import logging
+import time
 from scanner.scan import perform_scan, update_virus_database, get_scanner_command, get_files_to_scan
 
 def add_directory_handler(app):
@@ -90,6 +90,7 @@ def run_scan(app, files_to_scan):
             batch_size=app.batch_size,
             jobs=app.jobs.get(),
             logging_enabled=app.logging_enabled.get(),
+            delete_infected=app.delete_infected.get(),
             progress_callback=lambda nfiles: update_progress(app, nfiles),
             stop_flag=lambda: app.stop_requested
         )
@@ -149,8 +150,8 @@ def on_close_handler(app):
         app.pool = None
     if app.scan_thread and app.scan_thread.is_alive():
         app.scan_thread.join()
+    app.root.quit()
     app.root.destroy()
-    sys.exit()
 
 def show_error_message(app, message):
     messagebox.showerror('Error', message)
@@ -193,9 +194,27 @@ def show_quarantine_handler(app):
         if not selected:
             messagebox.showwarning('Advertencia', 'Selecciona un archivo para restaurar.')
             return
-        file_to_restore = os.path.join(app.quarantine_dir, listbox.get(selected[0]))
-        os.rename(file_to_restore, os.path.join(os.path.expanduser("~"), listbox.get(selected[0])))
-        listbox.delete(selected)
+        filename = listbox.get(selected[0])
+        file_to_restore = os.path.join(app.quarantine_dir, filename)
+        destination_dir = os.path.expanduser("~")
+        destination_path = os.path.join(destination_dir, filename)
+
+        if os.path.exists(destination_path):
+            overwrite = messagebox.askyesno('Confirmación', f'El archivo {filename} ya existe en {destination_dir}. ¿Deseas sobrescribirlo?')
+            if not overwrite:
+                return
+            else:
+                try:
+                    os.remove(destination_path)
+                except Exception as e:
+                    messagebox.showerror('Error', f'No se pudo eliminar el archivo existente: {e}')
+                    return
+        try:
+            os.rename(file_to_restore, destination_path)
+            os.chmod(destination_path, 0o644)
+            listbox.delete(selected)
+        except Exception as e:
+            messagebox.showerror('Error', f'No se pudo restaurar el archivo: {e}')
 
     restore_button = tk.Button(window, text="Restaurar Archivo", command=restore_file)
     restore_button.pack(fill=tk.X)

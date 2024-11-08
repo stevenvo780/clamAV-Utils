@@ -1,19 +1,25 @@
-# clamav_scanner/scanner/scan.py
-
 import os
 import subprocess
 import multiprocessing
 import logging
 import shutil
+from multiprocessing import Pool, Manager
 
 def get_files_to_scan(directories, exclude_dirs):
     exclude_dirs = [os.path.abspath(d) for d in exclude_dirs]
     files_to_scan = []
+    visited_dirs = set()
     for directory in directories:
-        for root, dirs, files in os.walk(directory, topdown=True):
-            dirs[:] = [d for d in dirs if os.path.abspath(os.path.join(root, d)) not in exclude_dirs]
+        for root, dirs, files in os.walk(directory, topdown=True, followlinks=False):
+            root_realpath = os.path.realpath(root)
+            if root_realpath in visited_dirs:
+                continue
+            visited_dirs.add(root_realpath)
+            dirs[:] = [d for d in dirs if os.path.abspath(os.path.join(root, d)) not in exclude_dirs and not os.path.islink(os.path.join(root, d))]
             for file in files:
                 file_path = os.path.join(root, file)
+                if os.path.islink(file_path):
+                    continue
                 if os.access(file_path, os.R_OK):
                     files_to_scan.append(file_path)
                 else:
@@ -21,13 +27,15 @@ def get_files_to_scan(directories, exclude_dirs):
     return files_to_scan
 
 def scan_file(args):
-    scanner_cmd, quarantine_dir, file_batch, logging_enabled = args
+    scanner_cmd, quarantine_dir, file_batch, logging_enabled, delete_infected = args
     infected_files = []
     try:
         cmd = [scanner_cmd, '--no-summary', '--stdout']
         if not logging_enabled:
             cmd.append('--log=/dev/null')
-        if quarantine_dir:
+        if delete_infected:
+            cmd.append('--remove')
+        elif quarantine_dir:
             cmd.append(f'--move={quarantine_dir}')
         cmd.extend(file_batch)
         result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -64,7 +72,7 @@ def get_scanner_command():
     else:
         return None
 
-def perform_scan(files_to_scan, quarantine_dir, batch_size, jobs, logging_enabled, progress_callback=None, stop_flag=None):
+def perform_scan(files_to_scan, quarantine_dir, batch_size, jobs, logging_enabled, delete_infected, progress_callback=None, stop_flag=None):
     scanner_cmd = get_scanner_command()
     if not scanner_cmd:
         raise FileNotFoundError('No se encontró clamdscan ni clamscan. Por favor, instala ClamAV.')
@@ -76,7 +84,7 @@ def perform_scan(files_to_scan, quarantine_dir, batch_size, jobs, logging_enable
     file_batches = list(chunker(files_to_scan, batch_size))
 
     scan_args = [
-        (scanner_cmd, quarantine_dir, batch, logging_enabled)
+        (scanner_cmd, quarantine_dir, batch, logging_enabled, delete_infected)
         for batch in file_batches
     ]
 

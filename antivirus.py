@@ -9,8 +9,8 @@ import argparse
 import shutil
 import logging
 from functools import partial
-
-nucleosLibres = 1
+import time
+import psutil
 
 def get_files_to_scan(directory, exclude_dirs):
     files_to_scan = []
@@ -57,21 +57,34 @@ def scan_file(scanner_cmd, quarantine_dir, result_list, file_batch):
 def chunker(seq, size):
     return (seq[pos:pos + size] for pos in range(0, len(seq), size))
 
+def update_virus_database():
+    try:
+        subprocess.run(['freshclam'], check=True)
+        logging.info('Base de datos de virus actualizada correctamente.')
+    except subprocess.CalledProcessError as e:
+        logging.error(f'Error al actualizar la base de datos de virus: {e}')
+        print('Error al actualizar la base de datos de virus.')
+
 def main():
     parser = argparse.ArgumentParser(description='Escanea directorios con ClamAV.')
     parser.add_argument('directories', nargs='+', help='Directorios a escanear')
-    parser.add_argument('-j', '--jobs', type=int, default=max(1, multiprocessing.cpu_count() - nucleosLibres),
-                        help='Número de trabajos en paralelo (por defecto: CPUs - 1)')
+    parser.add_argument('-j', '--jobs', type=int, help='Número de trabajos en paralelo (por defecto: CPUs - núcleos libres)')
+    parser.add_argument('--nucleos-libres', type=int, default=0, help='Número de núcleos a dejar libres (por defecto: 0)')
     parser.add_argument('--exclude-dirs', nargs='*', default=['/proc', '/sys', '/dev', '/run', '/tmp', '/var/lib', '/var/run'],
                         help='Directorios a excluir del escaneo')
     parser.add_argument('--quarantine-dir', help='Directorio para mover archivos infectados')
     parser.add_argument('--log-file', default='clamav_scan.log', help='Archivo de log (por defecto: clamav_scan.log)')
-    parser.add_argument('--batch-size', type=int, default=100, help='Número de archivos por lote para el escaneo (por defecto: 100)')
+    parser.add_argument('--batch-size', type=int, default=500, help='Número de archivos por lote para el escaneo (por defecto: 500)')
+    parser.add_argument('--update-db', action='store_true', help='Actualiza la base de datos de virus antes de escanear')
     args = parser.parse_args()
 
     # Configurar logging
     logging.basicConfig(filename=args.log_file, level=logging.INFO,
                         format='%(asctime)s - %(levelname)s - %(message)s')
+
+    # Actualizar base de datos si se especifica
+    if args.update_db:
+        update_virus_database()
 
     # Verificar si clamdscan o clamscan están instalados
     if shutil.which('clamdscan'):
@@ -123,10 +136,15 @@ def main():
     # Preparar función parcial para el escaneo
     scan_func = partial(scan_file, scanner_cmd, quarantine_dir, infected_files)
 
+    # Determinar el número de trabajos
+    if not args.jobs:
+        args.jobs = max(1, multiprocessing.cpu_count() - args.nucleos_libres)
+
     # Crear un pool de procesos
     pool = multiprocessing.Pool(processes=args.jobs)
 
     # Escanear archivos con barra de progreso
+    start_time = time.time()
     try:
         with tqdm(total=total_files, desc='Escaneando archivos', unit='archivo') as pbar:
             for nfiles in pool.imap_unordered(scan_func, file_batches):
@@ -141,9 +159,17 @@ def main():
         pool.close()
         pool.join()
 
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+    files_per_second = total_files / elapsed_time if elapsed_time > 0 else 0
+
     # Mostrar resultados
     print(f'\nAnálisis completo. Total de archivos escaneados: {total_files}')
     logging.info(f'Análisis completo. Total de archivos escaneados: {total_files}')
+    print(f'Tiempo total de escaneo: {elapsed_time:.2f} segundos')
+    logging.info(f'Tiempo total de escaneo: {elapsed_time:.2f} segundos')
+    print(f'Archivos por segundo: {files_per_second:.2f}')
+    logging.info(f'Archivos por segundo: {files_per_second:.2f}')
     print(f'Total de archivos infectados: {len(infected_files)}')
     logging.info(f'Total de archivos infectados: {len(infected_files)}')
     if infected_files:

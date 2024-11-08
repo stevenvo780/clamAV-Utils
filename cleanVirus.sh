@@ -38,7 +38,7 @@ install_dependencies() {
     fi
 
     # Terminar el script si faltan dependencias
-    if (( missing_dep )); then
+    if (( missing_dep  )); then
         echo "Error: No se pueden satisfacer todas las dependencias. Saliendo..." >&2
         exit 1
     fi
@@ -86,10 +86,32 @@ show_progress() {
         "$dir_name"
 }
 
+# Función para contar archivos en un directorio
+count_files() {
+    local dir="$1"
+    local exclude_dirs=(
+        "/sys"
+        "/proc"
+        "/dev"
+        "\$RECYCLE.BIN"
+        "System Volume Information"
+    )
+
+    # Construir patrón de exclusión para find
+    local exclude_pattern=""
+    for ex_dir in "${exclude_dirs[@]}"; do
+        exclude_pattern+=" -path \"$dir/$ex_dir\" -prune -o"
+    done
+
+    # Contar el número total de archivos
+    eval find "$dir" $exclude_pattern -type f -print0 | \
+        xargs -0 -n1 echo &>/dev/null | wc -l
+}
+
 # Función para escanear un directorio
 scan_directory() {
     local dir="$1"
-    local total_files
+    local total_files="$2"
     local current_file=0
 
     # Excluir directorios problemáticos
@@ -107,8 +129,6 @@ scan_directory() {
         exclude_pattern+=" -path \"$dir/$ex_dir\" -prune -o"
     done
 
-    # Contar el número total de archivos
-    total_files=$(eval find "$dir" $exclude_pattern -type f -print0 | xargs -0 -n1 echo | wc -l)
     if [ "$total_files" -eq 0 ]; then
         echo "No se encontraron archivos en $dir para escanear."
         return
@@ -118,22 +138,20 @@ scan_directory() {
 
     # Escanear archivos individualmente y actualizar la barra de progreso
     eval find "$dir" $exclude_pattern -type f -print0 | \
-    xargs -0 -n1 -P1 -I{} bash -c '
-        file="$1"
-        dir="$2"
-        QUARANTINE_DIR="$3"
-        LOG_FILE="$4"
-        current_file="$5"
-        total_files="$6"
-        current_file=$((current_file + 1))
+        xargs -0 -n1 -P1 -I{} bash -c '
+            file="$1"
+            dir="$2"
+            QUARANTINE_DIR="$3"
+            LOG_FILE="$4"
+            total_files="$5"
+            current_file="$6"
 
-        clamscan --no-summary --move="$QUARANTINE_DIR" "$file" &>/dev/null
-        exit_code=$?
+            clamscan --no-summary --move="$QUARANTINE_DIR" "$file" &>/dev/null
 
-        # Actualizar barra de progreso
-        show_progress "$current_file" "$total_files" "$dir"
-
-    ' _ {} "$dir" "$QUARANTINE_DIR" "$LOG_FILE" "$current_file" "$total_files"
+            # Actualizar contador y barra de progreso
+            current_file=$(($current_file + 1))
+            show_progress "$current_file" "$total_files" "$dir"
+        ' _ {} "$dir" "$QUARANTINE_DIR" "$LOG_FILE" "$total_files" "$current_file"
 
     echo ""  # Nueva línea después de la barra de progreso
 
@@ -142,11 +160,28 @@ scan_directory() {
 
 export -f scan_directory
 export -f show_progress
+export -f count_files
 export QUARANTINE_DIR
 export LOG_FILE
 
-# Iniciar escaneo con GNU Parallel
-echo "Iniciando escaneos con $PARALLEL_JOBS trabajos paralelos..." | tee -a "$LOG_FILE"
-printf "%s\n" "${drives[@]}" | parallel -j "$PARALLEL_JOBS" scan_directory {}
+# Función para contar y luego escanear un directorio
+count_and_scan() {
+    local dir="$1"
+
+    # Contar archivos en paralelo
+    total_files=$(count_files "$dir" &)
+
+    # Esperar a que termine el conteo
+    wait $!
+
+    # Iniciar el escaneo del directorio
+    scan_directory "$dir" "$total_files"
+}
+
+export -f count_and_scan
+
+# Iniciar conteo y escaneo con GNU Parallel
+echo "Iniciando conteo y escaneo con $PARALLEL_JOBS trabajos paralelos..." | tee -a "$LOG_FILE"
+parallel -j "$PARALLEL_JOBS" count_and_scan ::: "${drives[@]}"
 
 echo "Análisis completo - $(date)" | tee -a "$LOG_FILE"

@@ -1,5 +1,3 @@
-# clamav_scanner/main.py
-
 import os
 import sys
 from utils.dependencies import check_dependencies
@@ -17,7 +15,6 @@ def check_and_elevate():
 def main():
     check_dependencies()
     check_and_elevate()
-
     import tkinter as tk
     root = tk.Tk()
     app = ClamAVScannerApp(root)

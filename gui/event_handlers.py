@@ -1,11 +1,9 @@
-# clamav_scanner/gui/event_handlers.py
-
 import os
 import sys
 import threading
 import time
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, Toplevel, Listbox, Scrollbar
 import multiprocessing
 import logging
 from scanner.scan import perform_scan, update_virus_database, get_scanner_command, get_files_to_scan
@@ -41,7 +39,7 @@ def start_scan_handler(app):
         messagebox.showerror('Error', 'El tamaño de lote debe ser un número entero.')
         return
 
-    app.update_jobs()  # Llamada al método interno de la clase `ClamAVScannerApp`
+    app.update_jobs()
     app.stop_requested = False
 
     if app.logging_enabled.get():
@@ -123,6 +121,8 @@ def update_progress(app, nfiles):
 def _update_progress(app, nfiles):
     app.progress['value'] += nfiles
     app.progress.update_idletasks()
+    estimated_time = (app.elapsed_time / app.progress['value']) * (app.total_files - app.progress['value']) if app.progress['value'] > 0 else 0
+    app.status_label.config(text=f'Estado: Escaneando... Tiempo estimado restante: {estimated_time:.2f} segundos')
 
 def monitor_progress(app):
     if app.scan_thread and app.scan_thread.is_alive():
@@ -137,11 +137,6 @@ def display_results(app):
                      f'Tiempo total de escaneo: {app.elapsed_time:.2f} segundos\n' \
                      f'Archivos por segundo: {files_per_second:.2f}\n' \
                      f'Total de archivos infectados: {len(app.infected_files)}'
-
-    if app.infected_files:
-        result_message += '\nArchivos infectados:\n'
-        for file_path, output in app.infected_files:
-            result_message += f'- {file_path}\n  {output}\n'
 
     messagebox.showinfo('Escaneo Completo', result_message)
     app.status_label.config(text='Estado: Escaneo completo.')
@@ -162,3 +157,45 @@ def show_error_message(app, message):
 
 def update_status_label(app, message):
     app.status_label.config(text=message)
+
+def show_infected_files_handler(app):
+    if not app.infected_files:
+        messagebox.showinfo('Sin archivos infectados', 'No se encontraron archivos infectados.')
+        return
+
+    window = Toplevel(app.root)
+    window.title("Archivos Infectados")
+    listbox = Listbox(window, width=60, height=20)
+    scrollbar = Scrollbar(window)
+    listbox.pack(side=tk.LEFT, fill=tk.BOTH)
+    scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    listbox.config(yscrollcommand=scrollbar.set)
+    scrollbar.config(command=listbox.yview)
+
+    for file_path, output in app.infected_files:
+        listbox.insert(tk.END, f'{file_path}: {output}')
+
+def show_quarantine_handler(app):
+    window = Toplevel(app.root)
+    window.title("Cuarentena")
+    listbox = Listbox(window, width=60, height=20)
+    scrollbar = Scrollbar(window)
+    listbox.pack(side=tk.LEFT, fill=tk.BOTH)
+    scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    listbox.config(yscrollcommand=scrollbar.set)
+    scrollbar.config(command=listbox.yview)
+
+    for filename in os.listdir(app.quarantine_dir):
+        listbox.insert(tk.END, filename)
+
+    def restore_file():
+        selected = listbox.curselection()
+        if not selected:
+            messagebox.showwarning('Advertencia', 'Selecciona un archivo para restaurar.')
+            return
+        file_to_restore = os.path.join(app.quarantine_dir, listbox.get(selected[0]))
+        os.rename(file_to_restore, os.path.join(os.path.expanduser("~"), listbox.get(selected[0])))
+        listbox.delete(selected)
+
+    restore_button = tk.Button(window, text="Restaurar Archivo", command=restore_file)
+    restore_button.pack(fill=tk.X)

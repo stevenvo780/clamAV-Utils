@@ -1,5 +1,3 @@
-# clamav_scanner/gui/widgets.py
-
 import tkinter as tk
 from tkinter.ttk import Progressbar
 import multiprocessing
@@ -8,7 +6,9 @@ from gui.event_handlers import (
     remove_selected_directory_handler,
     browse_quarantine_dir_handler,
     start_scan_handler,
-    stop_scan_handler
+    stop_scan_handler,
+    show_infected_files_handler,
+    show_quarantine_handler
 )
 
 def create_main_frame(root):
@@ -82,8 +82,14 @@ def create_widgets(app):
     stop_button = tk.Button(frame, text='Detener Escaneo', command=lambda: stop_scan_handler(app))
     stop_button.grid(row=5, column=1, sticky='we', pady=5)
 
+    infected_files_button = tk.Button(frame, text='Archivos Infectados', command=lambda: show_infected_files_handler(app))
+    infected_files_button.grid(row=6, column=0, sticky='we', pady=5)
+
+    quarantine_button = tk.Button(frame, text='Ver Cuarentena', command=lambda: show_quarantine_handler(app))
+    quarantine_button.grid(row=6, column=1, sticky='we', pady=5)
+
     app.progress = Progressbar(frame, orient=tk.HORIZONTAL, length=400, mode='determinate')
-    app.progress.grid(row=6, column=0, columnspan=2, pady=5)
+    app.progress.grid(row=7, column=0, columnspan=2, pady=5)
 
     app.status_label = tk.Label(frame, text='Estado: Listo')
-    app.status_label.grid(row=7, column=0, columnspan=2, sticky='w')
+    app.status_label.grid(row=8, column=0, columnspan=2, sticky='w')

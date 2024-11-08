@@ -1,5 +1,3 @@
-# clamav_scanner/gui/scanner_app.py
-
 import os
 import tkinter as tk
 from gui.widgets import create_main_frame, create_widgets

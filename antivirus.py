@@ -10,7 +10,6 @@ import shutil
 import logging
 from functools import partial
 import time
-import psutil
 
 def get_files_to_scan(directory, exclude_dirs):
     files_to_scan = []
@@ -28,7 +27,8 @@ def get_files_to_scan(directory, exclude_dirs):
 
 def scan_file(scanner_cmd, quarantine_dir, result_list, file_batch):
     try:
-        cmd = [scanner_cmd, '--no-summary', '--stdout']
+        # Añadir '--log=/dev/null' para evitar conflictos de logging
+        cmd = [scanner_cmd, '--no-summary', '--stdout', '--log=/dev/null']
         if quarantine_dir:
             cmd.append(f'--move={quarantine_dir}')
         cmd.extend(file_batch)
@@ -63,7 +63,7 @@ def update_virus_database():
         logging.info('Base de datos de virus actualizada correctamente.')
     except subprocess.CalledProcessError as e:
         logging.error(f'Error al actualizar la base de datos de virus: {e}')
-        print('Error al actualizar la base de datos de virus.')
+        print('Error al actualizar la base de datos de virus. Continuando con el escaneo.')
 
 def main():
     parser = argparse.ArgumentParser(description='Escanea directorios con ClamAV.')

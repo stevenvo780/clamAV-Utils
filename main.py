@@ -2,7 +2,6 @@
 
 import os
 import sys
-import shutil
 from utils.dependencies import check_dependencies
 from gui.scanner_app import ClamAVScannerApp
 

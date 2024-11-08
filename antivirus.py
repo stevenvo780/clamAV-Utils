@@ -10,6 +10,8 @@ import shutil
 import logging
 from functools import partial
 
+nucleosLibres = 6
+
 def get_files_to_scan(directory, exclude_dirs):
     files_to_scan = []
     for root, dirs, files in os.walk(directory, topdown=True):
@@ -49,7 +51,7 @@ def scan_file(quarantine_dir, result_list, file_path):
 def main():
     parser = argparse.ArgumentParser(description='Escanea directorios con ClamAV.')
     parser.add_argument('directories', nargs='+', help='Directorios a escanear')
-    parser.add_argument('-j', '--jobs', type=int, default=max(1, multiprocessing.cpu_count() - 1),
+    parser.add_argument('-j', '--jobs', type=int, default=max(1, multiprocessing.cpu_count() - nucleosLibres),
                         help='Número de trabajos en paralelo (por defecto: CPUs - 1)')
     parser.add_argument('--exclude-dirs', nargs='*', default=['/proc', '/sys', '/dev', '/run', '/tmp', '/var/lib', '/var/run'],
                         help='Directorios a excluir del escaneo')

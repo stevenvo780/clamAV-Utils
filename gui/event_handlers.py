@@ -81,7 +81,8 @@ def start_scan_handler(app):
     monitor_progress(app)
 
 def run_scan(app, files_to_scan):
-    start_time = time.time()
+    app.start_time = time.time()
+    
     try:
         app.pool = multiprocessing.Pool(processes=app.jobs.get())
         total_files, processed_files, infected_files = perform_scan(
@@ -104,8 +105,7 @@ def run_scan(app, files_to_scan):
             app.pool.terminate()
             app.pool.join()
             app.pool = None
-        end_time = time.time()
-        app.elapsed_time = end_time - start_time
+        app.elapsed_time = time.time() - app.start_time
 
 def stop_scan_handler(app):
     app.stop_requested = True
@@ -122,8 +122,21 @@ def update_progress(app, nfiles):
 def _update_progress(app, nfiles):
     app.progress['value'] += nfiles
     app.progress.update_idletasks()
-    estimated_time = (app.elapsed_time / app.progress['value']) * (app.total_files - app.progress['value']) if app.progress['value'] > 0 else 0
-    app.status_label.config(text=f'Estado: Escaneando... Tiempo estimado restante: {estimated_time:.2f} segundos')
+    
+    elapsed_time = time.time() - app.start_time
+    processed_files = app.progress['value']
+    remaining_files = app.total_files - processed_files
+
+    if processed_files > 0:
+        files_per_second = processed_files / elapsed_time
+        estimated_time_remaining = remaining_files / files_per_second
+    else:
+        estimated_time_remaining = 0
+
+    app.status_label.config(
+        text=f'Estado: Escaneando... Tiempo estimado restante: {estimated_time_remaining:.2f} segundos'
+    )
+
 
 def monitor_progress(app):
     if app.scan_thread and app.scan_thread.is_alive():

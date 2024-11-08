@@ -5,14 +5,12 @@ import subprocess
 import multiprocessing
 import logging
 import shutil
-from multiprocessing import Pool, Manager
 
 def get_files_to_scan(directories, exclude_dirs):
     exclude_dirs = [os.path.abspath(d) for d in exclude_dirs]
     files_to_scan = []
     for directory in directories:
         for root, dirs, files in os.walk(directory, topdown=True):
-            # Excluir directorios especificados
             dirs[:] = [d for d in dirs if os.path.abspath(os.path.join(root, d)) not in exclude_dirs]
             for file in files:
                 file_path = os.path.join(root, file)

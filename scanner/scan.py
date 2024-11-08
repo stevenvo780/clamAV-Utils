@@ -1,3 +1,5 @@
+# clamav_scanner/scanner/scan.py
+
 import os
 import subprocess
 import multiprocessing
@@ -10,7 +12,7 @@ def get_files_to_scan(directories, exclude_dirs):
     files_to_scan = []
     for directory in directories:
         for root, dirs, files in os.walk(directory, topdown=True):
-            # Exclude specified directories
+            # Excluir directorios especificados
             dirs[:] = [d for d in dirs if os.path.abspath(os.path.join(root, d)) not in exclude_dirs]
             for file in files:
                 file_path = os.path.join(root, file)

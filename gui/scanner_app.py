@@ -1,3 +1,5 @@
+# clamav_scanner/gui/scanner_app.py
+
 import os
 import sys
 import logging
@@ -7,7 +9,7 @@ from tkinter.ttk import Progressbar
 import threading
 import multiprocessing
 import time
-from scanner import perform_scan, update_virus_database, get_scanner_command, get_files_to_scan
+from scanner.scan import perform_scan, update_virus_database, get_scanner_command, get_files_to_scan
 
 class ClamAVScannerApp:
     def __init__(self, root):

@@ -6,6 +6,7 @@ import multiprocessing
 import os
 import logging
 import time
+import sys
 from scanner import perform_scan, update_virus_database, get_scanner_command, get_files_to_scan
 
 class ClamAVScannerApp:
@@ -24,11 +25,11 @@ class ClamAVScannerApp:
         self.total_files = 0
         self.elapsed_time = 0
         self.infected_files = []
-        self.stop_requested = False  # Flag to stop the scan
+        self.stop_requested = False
+        self.scan_thread = None
+        self.pool = None
         self.create_widgets()
         self.update_jobs()
-
-        # Ensure clean exit when closing the application
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
     def create_widgets(self):
@@ -138,7 +139,7 @@ class ClamAVScannerApp:
             return
 
         self.update_jobs()
-        self.stop_requested = False  # Reset stop flag
+        self.stop_requested = False
 
         if self.logging_enabled.get():
             logging.basicConfig(
@@ -175,14 +176,14 @@ class ClamAVScannerApp:
         self.progress['maximum'] = self.total_files
         self.progress['value'] = 0
 
-        # Start scanning in a separate thread
-        self.scan_thread = threading.Thread(target=self.run_scan, args=(files_to_scan,))
+        self.scan_thread = threading.Thread(target=self.run_scan, args=(files_to_scan,), daemon=True)
         self.scan_thread.start()
         self.monitor_progress()
 
     def run_scan(self, files_to_scan):
         start_time = time.time()
         try:
+            self.pool = multiprocessing.Pool(processes=self.jobs.get())
             total_files, processed_files, infected_files = perform_scan(
                 files_to_scan=files_to_scan,
                 quarantine_dir=self.quarantine_dir,
@@ -190,20 +191,27 @@ class ClamAVScannerApp:
                 jobs=self.jobs.get(),
                 logging_enabled=self.logging_enabled.get(),
                 progress_callback=self.update_progress,
-                stop_flag=lambda: self.stop_requested  # Pass stop flag
+                stop_flag=lambda: self.stop_requested
             )
             self.total_files = total_files
             self.infected_files = infected_files
         except Exception as e:
             self.root.after(0, self.show_error_message, f'Error durante el escaneo: {e}')
             self.root.after(0, self.update_status_label, 'Estado: Error durante el escaneo.')
-            return
         finally:
+            if self.pool:
+                self.pool.terminate()
+                self.pool.join()
+                self.pool = None
             end_time = time.time()
             self.elapsed_time = end_time - start_time
 
     def stop_scan(self):
-        self.stop_requested = True  # Set stop flag to request stop
+        self.stop_requested = True
+        if self.pool:
+            self.pool.terminate()
+            self.pool.join()
+            self.pool = None
         self.status_label.config(text="Estado: Escaneo detenido por el usuario.")
         self.progress.stop()
 
@@ -215,7 +223,7 @@ class ClamAVScannerApp:
         self.progress.update_idletasks()
 
     def monitor_progress(self):
-        if self.scan_thread.is_alive():
+        if self.scan_thread and self.scan_thread.is_alive():
             self.root.after(100, self.monitor_progress)
         else:
             if not self.stop_requested:
@@ -237,8 +245,15 @@ class ClamAVScannerApp:
         self.status_label.config(text='Estado: Escaneo completo.')
 
     def on_close(self):
-        self.stop_scan()  # Ensure scanning stops if the window is closed
+        self.stop_requested = True
+        if self.pool:
+            self.pool.terminate()
+            self.pool.join()
+            self.pool = None
+        if self.scan_thread and self.scan_thread.is_alive():
+            self.scan_thread.join()
         self.root.destroy()
+        sys.exit()
 
     def show_error_message(self, message):
         messagebox.showerror('Error', message)

@@ -6,8 +6,6 @@ from tkinter import filedialog, messagebox
 from tkinter.ttk import Progressbar
 import threading
 import multiprocessing
-import subprocess
-import shutil
 import time
 from scanner import perform_scan, update_virus_database, get_scanner_command, get_files_to_scan
 
@@ -17,15 +15,14 @@ class ClamAVScannerApp:
         self.root.title('ClamAV Scanner')
         self.directories = []
         self.exclude_dirs = ['/proc', '/sys', '/dev', '/run', '/tmp', '/var/lib', '/var/run']
-        
-        # Cambiar el directorio base a ~/clamav_scanner
-        user_dir = os.path.join(os.path.expanduser("~"), "clamav_scanner")
+
+        user_home = os.path.expanduser(f"~{os.getenv('SUDO_USER')}" if os.getenv("SUDO_USER") else "~")
+        user_dir = os.path.join(user_home, "clamav_scanner")
         os.makedirs(user_dir, exist_ok=True)
-        
-        # Asignar directorios de cuarentena y log al directorio de inicio del usuario
+
         self.quarantine_dir = os.path.join(user_dir, 'quarantine')
         os.makedirs(self.quarantine_dir, exist_ok=True)
-        
+
         self.log_file = os.path.join(user_dir, 'clamav_scan.log')
         self.batch_size = 500
         self.update_db = True

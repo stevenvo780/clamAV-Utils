@@ -18,9 +18,11 @@ class ClamAVScannerApp:
         self.directories = []
         self.exclude_dirs = ['/proc', '/sys', '/dev', '/run', '/tmp', '/var/lib', '/var/run']
         
-        user_dir = os.path.expanduser("~/.clamav_scanner")
+        # Cambiar el directorio base a ~/clamav_scanner
+        user_dir = os.path.join(os.path.expanduser("~"), "clamav_scanner")
         os.makedirs(user_dir, exist_ok=True)
         
+        # Asignar directorios de cuarentena y log al directorio de inicio del usuario
         self.quarantine_dir = os.path.join(user_dir, 'quarantine')
         os.makedirs(self.quarantine_dir, exist_ok=True)
         
@@ -36,7 +38,7 @@ class ClamAVScannerApp:
         self.stop_requested = False
         self.scan_thread = None
         self.pool = None
-        self.delete_infected = tk.BooleanVar(value=False)  # Nuevo: opción para borrar en lugar de enviar a cuarentena
+        self.delete_infected = tk.BooleanVar(value=False)
         self.create_widgets()
         self.update_jobs()
         self.root.protocol("WM_DELETE_WINDOW", self.on_close)
